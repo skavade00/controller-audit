@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:sample;DB_CLOSE_DELAY=-1
+
+controller-audit:
+  mode: ASYNC
+  jdbc:
+    table-name: api_audit_log
+    auto-create-table: true
+  # kafka:                      # add the controller-audit-kafka dependency first
+  #   enabled: true
+  #   topic: api-audit-events
+# spring.kafka.bootstrap-servers: localhost:9092
