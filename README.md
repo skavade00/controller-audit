@@ -9,7 +9,28 @@ errors) is written to a database, synchronously or asynchronously, and optionall
 * Sensitive headers and fields are masked before anything leaves the request thread
 * A failing sink never breaks your request
 
-## Quick start
+## Requirements
+
+* Java 17+ and Spring Boot 3.x
+* A Spring MVC (servlet) web app, i.e. `spring-boot-starter-web` (WebFlux is not supported yet)
+* A database reachable through a `DataSource` (PostgreSQL, MySQL, H2 ...) with its JDBC driver on the classpath.
+  Or point the audit log at its own database, see [Configuration](#configuration-applicationyml-or-env-vars-eg-controller_audit_modesync)
+
+## How to use it in your project
+
+### Step 1: get the library
+
+*Until it is published to Maven Central*, build and install it into your local Maven repository once:
+
+```bash
+git clone https://github.com/your-github-username/controller-audit.git
+cd controller-audit
+mvn clean install
+```
+
+(Use `-DskipTests` to skip the tests. Repeat this whenever you update the library.)
+
+### Step 2: add the dependency
 
 ```xml
 <dependency>
@@ -19,14 +40,67 @@ errors) is written to a database, synchronously or asynchronously, and optionall
 </dependency>
 ```
 
+Reload Maven in your IDE.
+
+### Step 3: add the annotation
+
 ```java
 @SpringBootApplication
 @Audit                      // audit every controller
-public class MyApp { ... }
+public class MyApp {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApp.class, args);
+    }
+}
 ```
 
-That's it: a table `api_audit_log` is created in your application's DataSource and events are written
-asynchronously.
+No other configuration is needed. By default it uses your application's `DataSource`, creates the table
+`api_audit_log` if it does not exist, and writes events asynchronously.
+
+### Step 4: run and verify
+
+1. Start your app and call any endpoint, e.g. `curl localhost:8080/your-endpoint`
+2. Check the table (events are written in the background, so allow a moment):
+
+```sql
+select request_time, http_method, uri, response_status, duration_ms
+from api_audit_log order by request_time desc limit 10;
+```
+
+### Step 5 (optional): auditing only some controllers
+
+```java
+@RestController
+@Audit                                      // this controller only
+public class OrderController { ... }
+
+@Audit(mode = Mode.SYNC, maskFields = "pin") // a single method (also add @EnableControllerAudit on the main class)
+@PostMapping("/login")
+public Token login(...) { ... }
+
+@AuditIgnore                                // never audit this one
+@GetMapping("/health")
+public String health() { ... }
+```
+
+### Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| `Could not find artifact ...controller-audit-spring-boot-starter` | Step 1 not done (run `mvn clean install` in the library folder) |
+| App fails at startup: "expected exactly one DataSource" | Your app has no DataSource, or two without `@Primary`. Configure one, or set `controller-audit.jdbc.datasource=SEPARATE` (with `url`, `username`, `password`), or `controller-audit.jdbc.enabled=false` |
+| Nothing is logged | `@Audit` / `@EnableControllerAudit` missing, the endpoint is in an excluded path (`/actuator/**`, `/error`), or the method has `@AuditIgnore`. Check the app log for `controller-audit:` warnings |
+| Table not created | `controller-audit.jdbc.auto-create-table` is false, or the DB user lacks `CREATE TABLE` permission |
+| Rows appear late | Normal in `ASYNC` mode. Use `mode: SYNC` to write inside the request |
+
+### Try the demo first
+
+```bash
+mvn -pl controller-audit-sample -am package
+java -jar controller-audit-sample/target/controller-audit-sample-0.1.0-SNAPSHOT.jar
+curl "localhost:8080/greet?name=you"
+curl localhost:8080/audit-log
+```
 
 ## Annotations
 
